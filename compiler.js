@@ -2,7 +2,16 @@
   const bsScript = document.getElementById("bs");
   if (!bsScript) return console.warn("No ByteScript found with id='bs'");
 
-  let code = bsScript.textContent;
+  let code = "";
+
+  if (bsScript.src) {
+    // Fetch the external .bs file
+    const res = await fetch(bsScript.src);
+    code = await res.text();
+  } else {
+    // Inline ByteScript
+    code = bsScript.textContent;
+  }
 
   // ByteScript operators → JS
   code = code
@@ -18,4 +27,4 @@
   const scriptTag = document.createElement("script");
   scriptTag.textContent = code;
   document.body.appendChild(scriptTag);
-})(
+})();
