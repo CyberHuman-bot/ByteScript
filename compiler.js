@@ -5,23 +5,33 @@
   let code = "";
 
   if (bsScript.src) {
-    // Fetch the external .bs file
     const res = await fetch(bsScript.src);
     code = await res.text();
   } else {
-    // Inline ByteScript
     code = bsScript.textContent;
   }
 
-  // ByteScript operators → JS
+  // Replace ByteScript operators → JS
   code = code
     .replace(/\*add/g, "+")
     .replace(/\*sub/g, "-")
     .replace(/\*mul/g, "*")
     .replace(/\*div/g, "/")
     .replace(/\*mod/g, "%")
-    .replace(/^print\s+(.*)$/gm, "console.log($1)")
-    .replace(/^fn\s+(\w+)\s*\((.*?)\)/gm, "function $1($2)");
+    .replace(/^print\s+(.*)$/gm, "console.log($1)");
+
+  // Convert functions with braces
+  code = code.replace(
+    /^fn\s+(\w+)\s*\((.*?)\)\s*([\s\S]*?)(?=^fn\s|\Z)/gm,
+    (match, name, args, body) => {
+      // Indent body lines
+      const lines = body
+        .split("\n")
+        .map(l => "  " + l.trim())
+        .join("\n");
+      return `function ${name}(${args}) {\n${lines}\n}`;
+    }
+  );
 
   // Run the converted JS
   const scriptTag = document.createElement("script");
