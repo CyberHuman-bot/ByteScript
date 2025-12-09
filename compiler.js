@@ -11,7 +11,7 @@
     code = bsScript.textContent;
   }
 
-  // Replace ByteScript operators → JS
+  // Replace operators
   code = code
     .replace(/\*add/g, "+")
     .replace(/\*sub/g, "-")
@@ -20,11 +20,10 @@
     .replace(/\*mod/g, "%")
     .replace(/^print\s+(.*)$/gm, "console.log($1)");
 
-  // Convert functions with braces
+  // Convert functions
   code = code.replace(
     /^fn\s+(\w+)\s*\((.*?)\)\s*([\s\S]*?)(?=^fn\s|\Z)/gm,
     (match, name, args, body) => {
-      // Indent body lines
       const lines = body
         .split("\n")
         .map(l => "  " + l.trim())
@@ -33,7 +32,7 @@
     }
   );
 
-  // Run the converted JS
+  // Run the JS
   const scriptTag = document.createElement("script");
   scriptTag.textContent = code;
   document.body.appendChild(scriptTag);
