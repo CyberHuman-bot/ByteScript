@@ -164,12 +164,25 @@
       code = lines.map(line => {
         const trimmed = line.trim();
         
-        if (!trimmed || trimmed.startsWith('//')) return line;
-        if (trimmed.endsWith('{') || trimmed.endsWith('}') || trimmed.endsWith(';') || trimmed.endsWith(',')) return line;
-        if (trimmed.match(/^(if|else|for|while|function|class)\s*\(/)) return line;
-        if (trimmed === 'else') return line;
-        
-        return line + ';';
+      if (!trimmed || trimmed.startsWith('//')) return line;
+
+      // never touch block boundaries
+      if (
+        trimmed.endsWith('{') ||
+        trimmed.endsWith('}') ||
+        trimmed.endsWith(';') ||
+        trimmed.endsWith(',') ||
+        trimmed.endsWith(')')
+      ) return line;
+
+      // control keywords
+      if (/^(if|else|for|while|function|class)\b/.test(trimmed)) return line;
+
+      // IMPORTANT: don't auto-semicolon after string concat/log lines
+      if (/console\.log\(.+\)$/.test(trimmed)) return line;
+
+      return line + ';';
+
       }).join('\n');
 
       // ─────────────────────────────────────────────────────────────────────
