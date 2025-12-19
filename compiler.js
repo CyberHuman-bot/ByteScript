@@ -1,7 +1,7 @@
 (async function() {
   'use strict';
   
-  console.log('%c🚀 ByteScript Compiler v3.0', 'color: #667eea; font-size: 16px; font-weight: bold');
+  console.log('%c🚀 ByteScript Compiler v3.1 - CSP Fixed', 'color: #667eea; font-size: 16px; font-weight: bold');
   
   // ═══════════════════════════════════════════════════════════════════════════
   // Configuration & Constants
@@ -11,7 +11,8 @@
     scriptId: 'bs',
     debug: true,
     strictMode: true,
-    optimizations: true
+    optimizations: true,
+    executionMode: 'blob' // 'eval', 'function', 'blob'
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -52,27 +53,22 @@
       // Phase 1: Variable Declarations
       // ─────────────────────────────────────────────────────────────────────
       
-      // var x = 10 → let x = 10;
       code = code.replace(/^var\s+(\w+)\s*=\s*(.+?)$/gm, 'let $1 = $2;');
-      
-      // let/const remain as-is but add semicolons
       code = code.replace(/^let\s+(\w+)\s*=\s*(.+?)$/gm, 'let $1 = $2;');
       code = code.replace(/^const\s+(\w+)\s*=\s*(.+?)$/gm, 'const $1 = $2;');
 
       // ─────────────────────────────────────────────────────────────────────
-      // Phase 2: String Operations (Must be before math ops!)
+      // Phase 2: String Operations
       // ─────────────────────────────────────────────────────────────────────
       
-      // Multi-pass string concatenation: "a" & "b" & "c" → "a" + "b" + "c"
       for (let i = 0; i < 5; i++) {
         code = code.replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\w+|\d+)\s*&\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\w+|\d+)/g, '$1 + $2');
       }
 
       // ─────────────────────────────────────────────────────────────────────
-      // Phase 3: Math Operators (Enhanced with better pattern matching)
+      // Phase 3: Math Operators
       // ─────────────────────────────────────────────────────────────────────
       
-      // Multi-pass to handle nested operations
       for (let i = 0; i < 3; i++) {
         code = code.replace(/([\w\d._]+|\([^)]+\))\s*\+\+\s*([\w\d._]+|\([^)]+\))/g, '($1 + $2)');
         code = code.replace(/([\w\d._]+|\([^)]+\))\s*--\s*([\w\d._]+|\([^)]+\))/g, '($1 - $2)');
@@ -81,7 +77,6 @@
         code = code.replace(/([\w\d._]+|\([^)]+\))\s*%%\s*([\w\d._]+|\([^)]+\))/g, '($1 % $2)');
       }
 
-      // Power operator: x ^^ y → Math.pow(x, y)
       code = code.replace(/([\w\d._]+)\s*\^\^\s*([\w\d._]+)/g, 'Math.pow($1, $2)');
 
       // ─────────────────────────────────────────────────────────────────────
@@ -98,11 +93,8 @@
       // Phase 5: Function Declarations
       // ─────────────────────────────────────────────────────────────────────
       
-      // def name(args) { OR fn name(args) { → function name(args) {
       code = code.replace(/^(def|fn)\s+(\w+)\s*\(([^)]*)\)\s*\{/gm, 'function $2($3) {');
       code = code.replace(/^(def|fn)\s+(\w+)\s*\(([^)]*)\)\s*$/gm, 'function $2($3) {');
-      
-      // Arrow functions: => syntax
       code = code.replace(/^(\w+)\s*=>\s*(.+)$/gm, 'const $1 = () => $2;');
 
       // ─────────────────────────────────────────────────────────────────────
@@ -117,30 +109,21 @@
       code = code.replace(/^else\s*$/gm, '} else {');
       code = code.replace(/^endif$/gm, '}');
 
-      // Ternary: x ? "yes" : "no" (already valid JS, no change needed)
-
       // ─────────────────────────────────────────────────────────────────────
       // Phase 7: Control Flow - Loops
       // ─────────────────────────────────────────────────────────────────────
       
-      // Standard loops
       code = code.replace(/^for\s+(.+?)\s*\{/gm, 'for ($1) {');
       code = code.replace(/^for\s+(.+?)$/gm, 'for ($1) {');
       code = code.replace(/^while\s+(.+?)\s*\{/gm, 'while ($1) {');
       code = code.replace(/^while\s+(.+?)$/gm, 'while ($1) {');
       
-      // Simple loop: loop 10 { → for (let _i = 0; _i < 10; _i++) {
       code = code.replace(/^loop\s+(\d+)\s*\{/gm, 'for (let _i = 0; _i < $1; _i++) {');
       code = code.replace(/^loop\s+(\d+)$/gm, 'for (let _i = 0; _i < $1; _i++) {');
-      
-      // Range loop: loop i in 0..10 { → for (let i = 0; i < 10; i++) {
       code = code.replace(/^loop\s+(\w+)\s+in\s+(\d+)\.\.(\d+)\s*\{/gm, 'for (let $1 = $2; $1 < $3; $1++) {');
-      
-      // Each loop: each item in arr { → for (const item of arr) {
       code = code.replace(/^each\s+(\w+)\s+in\s+(\w+)\s*\{/gm, 'for (const $1 of $2) {');
       code = code.replace(/^each\s+(\w+)\s+in\s+(\w+)$/gm, 'for (const $1 of $2) {');
       
-      // Loop end keywords
       code = code.replace(/^(endloop|endfor|endwhile)$/gm, '}');
 
       // ─────────────────────────────────────────────────────────────────────
@@ -154,77 +137,47 @@
       // Phase 9: Data Structure Operations
       // ─────────────────────────────────────────────────────────────────────
       
-      // Array access: arr @ 0 → arr[0]
       code = code.replace(/(\w+)\s*@\s*(\d+|\w+)/g, '$1[$2]');
-      
-      // Array length: arr.len → arr.length
       code = code.replace(/(\w+)\.len\b/g, '$1.length');
-      
-      // Array methods shortcuts
-      code = code.replace(/(\w+)\.push\(/g, '$1.push(');
-      code = code.replace(/(\w+)\.pop\(\)/g, '$1.pop()');
 
       // ─────────────────────────────────────────────────────────────────────
       // Phase 10: Type Operations
       // ─────────────────────────────────────────────────────────────────────
       
-      // Type conversion: toInt(x) → parseInt(x)
       code = code.replace(/toInt\(/g, 'parseInt(');
       code = code.replace(/toFloat\(/g, 'parseFloat(');
       code = code.replace(/toStr\(/g, 'String(');
-      
-      // Type checking: isNum(x) → typeof x === 'number'
       code = code.replace(/isNum\((\w+)\)/g, "(typeof $1 === 'number')");
       code = code.replace(/isStr\((\w+)\)/g, "(typeof $1 === 'string')");
 
       // ─────────────────────────────────────────────────────────────────────
-      // Phase 11: Modern JS Features
-      // ─────────────────────────────────────────────────────────────────────
-      
-      // Spread operator already works: ...arr
-      // Destructuring already works: [a, b] = arr
-      // Template literals already work: `Hello ${name}`
-
-      // ─────────────────────────────────────────────────────────────────────
-      // Phase 12: Block End Keywords
+      // Phase 11: Block End Keywords
       // ─────────────────────────────────────────────────────────────────────
       
       code = code.replace(/^(end|enddef|endfn)$/gm, '}');
 
       // ─────────────────────────────────────────────────────────────────────
-      // Phase 13: Semicolon Insertion (Smart)
+      // Phase 12: Semicolon Insertion (Smart)
       // ─────────────────────────────────────────────────────────────────────
       
       const lines = code.split('\n');
       code = lines.map(line => {
         const trimmed = line.trim();
         
-        // Skip empty lines and comments
         if (!trimmed || trimmed.startsWith('//')) return line;
-        
-        // Skip lines that already end correctly
-        if (trimmed.endsWith('{') || 
-            trimmed.endsWith('}') || 
-            trimmed.endsWith(';') ||
-            trimmed.endsWith(',')) return line;
-        
-        // Skip control flow keywords
+        if (trimmed.endsWith('{') || trimmed.endsWith('}') || trimmed.endsWith(';') || trimmed.endsWith(',')) return line;
         if (trimmed.match(/^(if|else|for|while|function|class)\s*\(/)) return line;
         if (trimmed === 'else') return line;
         
-        // Add semicolon
         return line + ';';
       }).join('\n');
 
       // ─────────────────────────────────────────────────────────────────────
-      // Phase 14: Optimizations
+      // Phase 13: Optimizations
       // ─────────────────────────────────────────────────────────────────────
       
       if (CONFIG.optimizations) {
-        // Remove unnecessary parentheses in simple math
         code = code.replace(/\(\((\w+)\) \+ \((\w+)\)\)/g, '($1 + $2)');
-        
-        // Simplify double negatives
         code = code.replace(/--(\w+)/g, '$1');
       }
 
@@ -234,7 +187,7 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // Code Generator - Executes compiled JavaScript
+  // Code Generator - CSP-Safe Execution (Fixed!)
   // ═══════════════════════════════════════════════════════════════════════════
   
   class CodeGenerator {
@@ -244,17 +197,41 @@
 
     execute() {
       try {
+        let execCode = this.code;
         if (CONFIG.strictMode) {
-          this.code = '"use strict";\n' + this.code;
+          execCode = '"use strict";\n' + execCode;
         }
 
-        const script = document.createElement('script');
-        script.textContent = this.code;
-        document.body.appendChild(script);
+        switch (CONFIG.executionMode) {
+          case 'eval':
+            eval(execCode);
+            break;
+            
+          case 'function':
+            const func = new Function(execCode);
+            func();
+            break;
+            
+          case 'blob':
+          default:
+            const blob = new Blob([execCode], { type: 'application/javascript' });
+            const url = URL.createObjectURL(blob);
+            const script = document.createElement('script');
+            script.src = url;
+            document.head.appendChild(script);
+            
+            // Cleanup after execution
+            script.onload = () => {
+              document.head.removeChild(script);
+              URL.revokeObjectURL(url);
+            };
+            break;
+        }
         
         return { success: true, error: null };
       } catch (err) {
-        return { success: false, error: err };
+        console.error('Execution error:', err);
+        return { success: false, error: err.message };
       }
     }
   }
@@ -310,6 +287,7 @@
       const duration = (endTime - startTime).toFixed(2);
 
       console.log(`%c✨ Compilation complete in ${duration}ms`, 'color: #43e97b');
+      console.log(`%c📊 Execution mode: ${CONFIG.executionMode}`, 'color: #4facfe');
       
       if (CONFIG.debug) {
         console.groupCollapsed('%c📦 Compiled JavaScript', 'color: #667eea; font-weight: bold');
@@ -346,7 +324,7 @@
         return result;
       } catch (err) {
         console.error('%c❌ Compilation failed:', 'color: #f5576c; font-weight: bold', err.message);
-        return { success: false, error: err };
+        return { success: false, error: err.message };
       }
     }
   }
