@@ -1,43 +1,361 @@
-(async function () {
-  const bsScript = document.getElementById("bs");
-  if (!bsScript) {
-    console.error("No ByteScript found with id='bs'");
-    return;
-  }
+(async function() {
+  'use strict';
+  
+  console.log('%c🚀 ByteScript Compiler v3.0', 'color: #667eea; font-size: 16px; font-weight: bold');
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Configuration & Constants
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  const CONFIG = {
+    scriptId: 'bs',
+    debug: true,
+    strictMode: true,
+    optimizations: true
+  };
 
-  let code = "";
-
-  // Load code
-  if (bsScript.src) {
-    const res = await fetch(bsScript.src);
-    code = await res.text();
-  } else {
-    code = bsScript.textContent;
-  }
-
-  // Operators
-  code = code
-    .replace(/\*add/g, "+")
-    .replace(/\*sub/g, "-")
-    .replace(/\*mul/g, "*")
-    .replace(/\*div/g, "/")
-    .replace(/\*mod/g, "%")
-    .replace(/^print\s+(.*)$/gm, "console.log($1)");
-
-  // Proper function conversion
-  code = code.replace(
-    /^fn\s+(\w+)\s*\((.*?)\)\s*\n([\s\S]*?)(?=^fn\s|\Z)/gm,
-    (match, name, args, body) => {
-      const cleanBody = body
-        .split("\n")
-        .map(line => "  " + line.trim())
-        .join("\n");
-      return `function ${name}(${args}) {\n${cleanBody}\n}\n`;
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Lexer - Tokenizes ByteScript source code
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  class Lexer {
+    constructor(source) {
+      this.source = source;
+      this.tokens = [];
     }
-  );
 
-  // Execute the JS
-  const scriptTag = document.createElement("script");
-  scriptTag.textContent = code;
-  document.body.appendChild(scriptTag);
+    tokenize() {
+      // Remove comments first
+      let code = this.source;
+      code = code.replace(/\/\/.*$/gm, ''); // Single-line comments
+      code = code.replace(/\/\*[\s\S]*?\*\//g, ''); // Multi-line comments
+      code = code.replace(/#.*$/gm, ''); // Shell-style comments
+      
+      return code;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Parser - Transforms ByteScript syntax to JavaScript
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  class Parser {
+    constructor(code) {
+      this.code = code;
+      this.output = '';
+    }
+
+    parse() {
+      let code = this.code;
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase 1: Variable Declarations
+      // ─────────────────────────────────────────────────────────────────────
+      
+      // var x = 10 → let x = 10;
+      code = code.replace(/^var\s+(\w+)\s*=\s*(.+?)$/gm, 'let $1 = $2;');
+      
+      // let/const remain as-is but add semicolons
+      code = code.replace(/^let\s+(\w+)\s*=\s*(.+?)$/gm, 'let $1 = $2;');
+      code = code.replace(/^const\s+(\w+)\s*=\s*(.+?)$/gm, 'const $1 = $2;');
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase 2: String Operations (Must be before math ops!)
+      // ─────────────────────────────────────────────────────────────────────
+      
+      // Multi-pass string concatenation: "a" & "b" & "c" → "a" + "b" + "c"
+      for (let i = 0; i < 5; i++) {
+        code = code.replace(/("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\w+|\d+)\s*&\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\w+|\d+)/g, '$1 + $2');
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase 3: Math Operators (Enhanced with better pattern matching)
+      // ─────────────────────────────────────────────────────────────────────
+      
+      // Multi-pass to handle nested operations
+      for (let i = 0; i < 3; i++) {
+        code = code.replace(/([\w\d._]+|\([^)]+\))\s*\+\+\s*([\w\d._]+|\([^)]+\))/g, '($1 + $2)');
+        code = code.replace(/([\w\d._]+|\([^)]+\))\s*--\s*([\w\d._]+|\([^)]+\))/g, '($1 - $2)');
+        code = code.replace(/([\w\d._]+|\([^)]+\))\s*\*\*\s*([\w\d._]+|\([^)]+\))/g, '($1 * $2)');
+        code = code.replace(/([\w\d._]+|\([^)]+\))\s*\/\/\s*([\w\d._]+|\([^)]+\))/g, '($1 / $2)');
+        code = code.replace(/([\w\d._]+|\([^)]+\))\s*%%\s*([\w\d._]+|\([^)]+\))/g, '($1 % $2)');
+      }
+
+      // Power operator: x ^^ y → Math.pow(x, y)
+      code = code.replace(/([\w\d._]+)\s*\^\^\s*([\w\d._]+)/g, 'Math.pow($1, $2)');
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase 4: Output/Print Statements
+      // ─────────────────────────────────────────────────────────────────────
+      
+      code = code.replace(/^say\s+(.+)$/gm, 'console.log($1);');
+      code = code.replace(/^print\s+(.+)$/gm, 'console.log($1);');
+      code = code.replace(/^log\s+(.+)$/gm, 'console.log($1);');
+      code = code.replace(/^out\s+(.+)$/gm, 'console.log($1);');
+      code = code.replace(/^echo\s+(.+)$/gm, 'console.log($1);');
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase 5: Function Declarations
+      // ─────────────────────────────────────────────────────────────────────
+      
+      // def name(args) { OR fn name(args) { → function name(args) {
+      code = code.replace(/^(def|fn)\s+(\w+)\s*\(([^)]*)\)\s*\{/gm, 'function $2($3) {');
+      code = code.replace(/^(def|fn)\s+(\w+)\s*\(([^)]*)\)\s*$/gm, 'function $2($3) {');
+      
+      // Arrow functions: => syntax
+      code = code.replace(/^(\w+)\s*=>\s*(.+)$/gm, 'const $1 = () => $2;');
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase 6: Control Flow - Conditionals
+      // ─────────────────────────────────────────────────────────────────────
+      
+      code = code.replace(/^if\s+(.+?)\s*\{/gm, 'if ($1) {');
+      code = code.replace(/^if\s+(.+?)$/gm, 'if ($1) {');
+      code = code.replace(/^elif\s+(.+?)\s*\{/gm, '} else if ($1) {');
+      code = code.replace(/^elif\s+(.+?)$/gm, '} else if ($1) {');
+      code = code.replace(/^else\s*\{/gm, '} else {');
+      code = code.replace(/^else\s*$/gm, '} else {');
+      code = code.replace(/^endif$/gm, '}');
+
+      // Ternary: x ? "yes" : "no" (already valid JS, no change needed)
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase 7: Control Flow - Loops
+      // ─────────────────────────────────────────────────────────────────────
+      
+      // Standard loops
+      code = code.replace(/^for\s+(.+?)\s*\{/gm, 'for ($1) {');
+      code = code.replace(/^for\s+(.+?)$/gm, 'for ($1) {');
+      code = code.replace(/^while\s+(.+?)\s*\{/gm, 'while ($1) {');
+      code = code.replace(/^while\s+(.+?)$/gm, 'while ($1) {');
+      
+      // Simple loop: loop 10 { → for (let _i = 0; _i < 10; _i++) {
+      code = code.replace(/^loop\s+(\d+)\s*\{/gm, 'for (let _i = 0; _i < $1; _i++) {');
+      code = code.replace(/^loop\s+(\d+)$/gm, 'for (let _i = 0; _i < $1; _i++) {');
+      
+      // Range loop: loop i in 0..10 { → for (let i = 0; i < 10; i++) {
+      code = code.replace(/^loop\s+(\w+)\s+in\s+(\d+)\.\.(\d+)\s*\{/gm, 'for (let $1 = $2; $1 < $3; $1++) {');
+      
+      // Each loop: each item in arr { → for (const item of arr) {
+      code = code.replace(/^each\s+(\w+)\s+in\s+(\w+)\s*\{/gm, 'for (const $1 of $2) {');
+      code = code.replace(/^each\s+(\w+)\s+in\s+(\w+)$/gm, 'for (const $1 of $2) {');
+      
+      // Loop end keywords
+      code = code.replace(/^(endloop|endfor|endwhile)$/gm, '}');
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase 8: Return Statements
+      // ─────────────────────────────────────────────────────────────────────
+      
+      code = code.replace(/^ret\s+(.+)$/gm, 'return $1;');
+      code = code.replace(/^return\s+(.+?)$/gm, 'return $1;');
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase 9: Data Structure Operations
+      // ─────────────────────────────────────────────────────────────────────
+      
+      // Array access: arr @ 0 → arr[0]
+      code = code.replace(/(\w+)\s*@\s*(\d+|\w+)/g, '$1[$2]');
+      
+      // Array length: arr.len → arr.length
+      code = code.replace(/(\w+)\.len\b/g, '$1.length');
+      
+      // Array methods shortcuts
+      code = code.replace(/(\w+)\.push\(/g, '$1.push(');
+      code = code.replace(/(\w+)\.pop\(\)/g, '$1.pop()');
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase 10: Type Operations
+      // ─────────────────────────────────────────────────────────────────────
+      
+      // Type conversion: toInt(x) → parseInt(x)
+      code = code.replace(/toInt\(/g, 'parseInt(');
+      code = code.replace(/toFloat\(/g, 'parseFloat(');
+      code = code.replace(/toStr\(/g, 'String(');
+      
+      // Type checking: isNum(x) → typeof x === 'number'
+      code = code.replace(/isNum\((\w+)\)/g, "(typeof $1 === 'number')");
+      code = code.replace(/isStr\((\w+)\)/g, "(typeof $1 === 'string')");
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase 11: Modern JS Features
+      // ─────────────────────────────────────────────────────────────────────
+      
+      // Spread operator already works: ...arr
+      // Destructuring already works: [a, b] = arr
+      // Template literals already work: `Hello ${name}`
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase 12: Block End Keywords
+      // ─────────────────────────────────────────────────────────────────────
+      
+      code = code.replace(/^(end|enddef|endfn)$/gm, '}');
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase 13: Semicolon Insertion (Smart)
+      // ─────────────────────────────────────────────────────────────────────
+      
+      const lines = code.split('\n');
+      code = lines.map(line => {
+        const trimmed = line.trim();
+        
+        // Skip empty lines and comments
+        if (!trimmed || trimmed.startsWith('//')) return line;
+        
+        // Skip lines that already end correctly
+        if (trimmed.endsWith('{') || 
+            trimmed.endsWith('}') || 
+            trimmed.endsWith(';') ||
+            trimmed.endsWith(',')) return line;
+        
+        // Skip control flow keywords
+        if (trimmed.match(/^(if|else|for|while|function|class)\s*\(/)) return line;
+        if (trimmed === 'else') return line;
+        
+        // Add semicolon
+        return line + ';';
+      }).join('\n');
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Phase 14: Optimizations
+      // ─────────────────────────────────────────────────────────────────────
+      
+      if (CONFIG.optimizations) {
+        // Remove unnecessary parentheses in simple math
+        code = code.replace(/\(\((\w+)\) \+ \((\w+)\)\)/g, '($1 + $2)');
+        
+        // Simplify double negatives
+        code = code.replace(/--(\w+)/g, '$1');
+      }
+
+      this.output = code;
+      return this.output;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Code Generator - Executes compiled JavaScript
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  class CodeGenerator {
+    constructor(code) {
+      this.code = code;
+    }
+
+    execute() {
+      try {
+        if (CONFIG.strictMode) {
+          this.code = '"use strict";\n' + this.code;
+        }
+
+        const script = document.createElement('script');
+        script.textContent = this.code;
+        document.body.appendChild(script);
+        
+        return { success: true, error: null };
+      } catch (err) {
+        return { success: false, error: err };
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Compiler Pipeline - Orchestrates the compilation process
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  class CompilerPipeline {
+    constructor() {
+      this.source = '';
+      this.compiled = '';
+    }
+
+    async loadSource() {
+      const bsScript = document.getElementById(CONFIG.scriptId);
+      
+      if (!bsScript) {
+        throw new Error(`No script tag found with id="${CONFIG.scriptId}"`);
+      }
+
+      if (bsScript.src) {
+        try {
+          const response = await fetch(bsScript.src);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          this.source = await response.text();
+          console.log(`%c📄 Loaded: ${bsScript.src}`, 'color: #4ec9b0');
+        } catch (err) {
+          throw new Error(`Failed to load ${bsScript.src}: ${err.message}`);
+        }
+      } else {
+        this.source = bsScript.textContent.trim();
+        console.log('%c📄 Loaded: Inline ByteScript', 'color: #4ec9b0');
+      }
+
+      return this.source;
+    }
+
+    compile() {
+      console.log('%c⚙️  Compiling ByteScript...', 'color: #f093fb');
+      
+      const startTime = performance.now();
+
+      // Step 1: Lexical Analysis
+      const lexer = new Lexer(this.source);
+      const cleanedCode = lexer.tokenize();
+
+      // Step 2: Parsing & Transformation
+      const parser = new Parser(cleanedCode);
+      this.compiled = parser.parse();
+
+      const endTime = performance.now();
+      const duration = (endTime - startTime).toFixed(2);
+
+      console.log(`%c✨ Compilation complete in ${duration}ms`, 'color: #43e97b');
+      
+      if (CONFIG.debug) {
+        console.groupCollapsed('%c📦 Compiled JavaScript', 'color: #667eea; font-weight: bold');
+        console.log(this.compiled);
+        console.groupEnd();
+      }
+
+      return this.compiled;
+    }
+
+    execute() {
+      console.log('%c🎯 Executing compiled code...', 'color: #4facfe');
+      
+      const generator = new CodeGenerator(this.compiled);
+      const result = generator.execute();
+
+      if (result.success) {
+        console.log('%c✅ ByteScript execution successful!', 'color: #43e97b; font-weight: bold');
+      } else {
+        console.error('%c❌ Runtime error:', 'color: #f5576c; font-weight: bold', result.error);
+      }
+
+      return result;
+    }
+
+    async run() {
+      try {
+        await this.loadSource();
+        this.compile();
+        const result = this.execute();
+        
+        console.log('%c' + '═'.repeat(60), 'color: #667eea');
+        
+        return result;
+      } catch (err) {
+        console.error('%c❌ Compilation failed:', 'color: #f5576c; font-weight: bold', err.message);
+        return { success: false, error: err };
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Execute the compiler
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  const compiler = new CompilerPipeline();
+  await compiler.run();
+
 })();
